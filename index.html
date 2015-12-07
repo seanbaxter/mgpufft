@@ -21,8 +21,13 @@
 
 </head><body class="tutorial">
 <a href="https://github.com/seanbaxter/mgpufft"><img style="position: absolute; top: 0; right: 0; border: 0;" width="149" height="149" src="forkme_right_green_007200.png" alt="Fork me on GitHub" /></a>
+
 <div class="copyright">
-<p><strong>&copy; 2015, <a href="https://www.twitter.com/moderngpu">Sean Baxter</a>. All rights reserved.</strong></p>
+<p>
+<strong>&copy; 2015, <a href="https://www.twitter.com/moderngpu">Sean Baxter</a>. All rights reserved.</strong>
+</p>
+<p>An experimental component of the <a href="http://www.moderngpu.com/">Modern GPU</a> algorithms library.</p>
+</p>
 </div><br />
 
 <h1>MGPU FFT 0.01</h1>
@@ -36,11 +41,12 @@ convolution theorem</a>.
 </p>
 
 <p>
-In this 0.01 version, only 1D FFTs for power-of-two sizes between 4 and 1024
+In this 0.01 version, only batched 1D real-to-complex (R2C) FFTs for power-of-two sizes between 4 and 1024
 are included. They are benchmarked against 
 <a href="http://docs.nvidia.com/cuda/cufft/index.html">CUFFT's</a> equivalent
 <code>cudaPlanMany</code> transforms.
 </p>
+
 <div class="snip"><pre>
 
 GeForce GTX TITAN
@@ -68,10 +74,93 @@ Throughputs reported by
 <p>
 MGPU FFT achieves excellent performance by treating the problem with a 
 <a href="http://nvlabs.github.io/moderngpu/intro.html#twophase">
-<i>two-phase decomposition</i></a>.
-
-
+<i>two-phase decomposition</i></a>. In the first phase of the implementation we partition the problem into coarsely parallel units. In the other phase, we execute intra-thread computation. As in each of the <a href="http://www.moderngpu.com/">Modern GPU</a> algorithms, this system exposes a <i>grain size</i>, or the amount of sequential work per thread. By increasing the grain size, we expose more <i>instruction-level parallelism</i> but consume more register file and shared memory, thereby reducing <i>thread-level parallelism</i> (or <i>occupancy</i> in CUDA language) and the ability to hide latency.
 </p>
+
+<p> 
+In our general-purpose algorithms, the grain size is any odd number, which assists in bank conflict-free transposes between strided-order and thread-order representations. In the MGPU FFT library, grain sizes divide the number of points in the input vector; for power-of-two inputs, we have power-of-two grain sizes. Composite-sized inputs admit more flexibility in grain size selection, at the expense of more complicated partitioning. 
+</p>
+
+<p>
+The most fine-grained element of computation is the <code>fft_t&lt;real_t, n&gt;</code> operator. This operates within a single thread, either on the CPU or GPU. It provides a consistent interface to statically-unrolled FFTs of different sizes. 
+</p>
+
+
+<div class="snip"><pre class="brush: cpp; toolbar: false;">
+template&lt;typename inner_t&gt;
+struct fft_radix2_t {
+
+  enum { n = 2 * inner_t::n };
+  typedef typename inner_t::real_t real_t;
+  typedef mgpu::complex_t&lt;real_t&gt; complex_t;
+  typedef array_t&lt;complex_t, n&gt; full_array_t;
+  typedef array_t&lt;complex_t, n / 2&gt; radix_array_t;
+
+  HOST_DEVICE full_array_t operator()(full_array_t x) const;
+
+  // The twiddle factors are computed on the host and accessed through 
+  // GPU constant memory.
+  complex_t w[n / 2];
+
+  // Recursively call the inner implementation. This may be of another radix
+  // for composite transforms.
+  inner_t inner;
+};
+</pre></div>
+
+<p>
+<code>fft_radix2_t</code> divides its input size by two, and calls into an <code>inner</code> class that may be of any radix. The composition is recursive, terminating at <code>fft1_t</code>, the radix 1 operator, which returns its size-1 input vector. Operators for other radixes follow the pattern of <code>fft_radix2_t</code>.
+</p>
+
+<p>
+In-place FFT algorithms leave the results misordered. Decimation-in-time implementations (DIT) permutes the inputs so that outputs are ordered. Decimation-in-frequency implementations (DIF) permutes the outputs. For power-of-two inputs, the permutation for both DIT and DIF is specified by a <a href="https://en.wikipedia.org/wiki/Cooley%E2%80%93Tukey_FFT_algorithm#Data_reordering.2C_bit_reversal.2C_and_in-place_algorithms">bit reversal</a> of the input or output element. <code>warp_fft</code> is an in-place radix-2 function that computes a DFT <i>between threads</i> using the <code>prmt</code> instruction for inter-thread communication and bit reversal ordering. This is not a high-performance function, but is included for edge cases where the partitioning operation does not exactly divide the inputs over all threads.
+</p>
+
+<p>
+<code>fft_t</code>, which is the workhorse of MGPU FFT, does not require bit reversal or explicit input or output permutation. It operates entirely in register, without any dynamic indexing, but is not strictly speaking an in-place algorithm. It is defined to take a pass-by-value statically-sized array of inputs (contained in the <code>array_t</code> type, which mirrors C++11's <code>std::array</code>) and return by value a statically-sized array. Ordinary C++ technique avoids the creation of large temporaries. In fact, many of C++11's signature features were introduced to elide temporaries altogether. However, MGPU FFT uses these temporaries strategically: by defining our operators recursively and passing all arguments by value, we put the burden of optimization on the compiler's register allocator. The compiler has a full view of the function, and can precisely place live state into registers. The MOVs that facilitate the permutation in DIT or DIF are elided by <code>fft_t</code>, because the compiler uses the recursive definition to place each output element in its correct register.
+</p>
+
+<div class="snip"><pre class="brush: cpp; toolbar: false;">
+#include "fft.hxx"
+
+__global__ void kernel64(
+  mgpu::fft_real_t&lt;float, 64&gt; fft, 
+  mgpu::array_t&lt;float, 64&gt;* x,
+  mgpu::array_t&lt;mgpu::complex_t&lt;float&gt;, 32>* y) {
+
+  *y = fft.half_complex(*x);
+}
+</pre><p>...</p><pre>
+         FFMA.FTZ R36, R36, 2, -R37;              
+         FADD.FTZ R56, R54, R39;                  
+         FFMA.FTZ R5, -R32, c[0x0][0x268], R51;   
+         FFMA.FTZ R4, -R52, c[0x0][0x258], R42;   
+         FMUL.FTZ R55, R46, c[0x0][0x1b4];        
+         FFMA.FTZ R34, R34, 2, -R53;              
+         FFMA.FTZ R72, R32, c[0x0][0x26c], R71;   
+                                                  
+         FFMA.FTZ R53, -R31, c[0x0][0x258], R6;   
+         FFMA.FTZ R71, -R41, c[0x0][0x26c], R5;   
+         FFMA.FTZ R41, -R30, c[0x0][0x268], R35;  
+         FFMA.FTZ R31, -R31, c[0x0][0x25c], R4;   
+         FFMA.FTZ R4, -R7, c[0x0][0x258], R44;    
+         FFMA.FTZ R55, R56, c[0x0][0x1b0], R55;   
+         FMUL.FTZ R56, R56, c[0x0][0x1b4];         
+</pre></div>
+
+<p>
+This example program compiles to a fully-unrolled 64-point R2C FFT. A small block of disassembly illustrates the arithmetic density of the code. Twiddle factors are computed on the host by <code>fft_real_t</code>'s default constructor and stored as data member in the object. These factors are sent to the GPU by the chevron launch and accessed as constant memory in the kernel. This technique generates code that is optimal for small transformations. It is the sequential computation part of our two-phase decomposition strategy. Larger FFTs are implemented by using the Matrix Fourier Algorithm to decompose the problem into a multi-dimensional array of smaller transforms. Each of the component transforms is computed intra-thread, and the composite problem is solved with inter-thread partitioning and data movement.
+</p>
+
+<p>
+TODO Optimization topics:
+</p>
+
+<ol>
+<li>FMA instruction fusing.</li>
+<li>Exploiting Hermitian symmetry and intra-warp FFT.</li>
+<li>Circular shift theorem for intra-register array rotation.</li>
+</ol>
 
 </body>
 </html>
