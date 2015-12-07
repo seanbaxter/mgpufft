@@ -128,7 +128,7 @@ benchmark_t benchmark_test(int n, int batch, int num_iterations = 10,
     benchmark.throughput[i] = (double)benchmark.size * num_iterations / 
       benchmark.elapsed[i] / 1.0e9;
     benchmark.bandwidth[i] = (double)benchmark.size * num_iterations * 
-      2 * sizeof(real_t) / benchmark.elapsed[i] / (1<< 30);
+      2 * sizeof(real_t) / benchmark.elapsed[i] / 1.0e9;
   }
 
   std::vector<complex_t<real_t> > output_host = 
@@ -166,9 +166,25 @@ benchmark_t benchmark_test(int n, int batch, int num_iterations = 10,
 
 
 int main(int argc, char** argv) {
+  size_t freeMem, totalMem;
+  cudaMemGetInfo(&freeMem, &totalMem);
+
+  cudaDeviceProp prop;
+  cudaGetDeviceProperties(&prop, 0);
+
+  printf("%s\n", prop.name);
+  printf("%d MB device memory.\n", (int)(totalMem / (1<< 20)));
+
+  double bandwidth = 1000.0 * prop.memoryClockRate * prop.memoryBusWidth / 
+    8 * 2 / 1.0e9;
+  printf("Memory bandwidth: %d GB/s\n", (int)bandwidth);
+
+  printf("\nThroughputs reported by\n"
+         "1. billions of points/s.\n"
+         "2. GB/s of memory utilization (8 bytes/point).\n\n");
+  printf("\n   n:            MGPU                        CUFFT           ratio\n");
 
   for(int n = 4; n <= 1024; n *= 2) {
-
     benchmark_t bench = benchmark_test(n, (64<< 20) / n, 10);
     printf("%4d: %6.3f B/s (%6.2f GB/s)    %6.3f B/s (%6.2f GB/s)  %5.2fx\n", 
       bench.n,
