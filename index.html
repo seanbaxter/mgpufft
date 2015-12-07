@@ -1,0 +1,77 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"><head>
+  <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type" />
+  <title>MGPU FFT</title>
+  <link href="mgpu.css" rel="stylesheet" type="text/css" />
+  <script src="syntaxhighlighter_3.0.83/scripts/shCore.js" type="text/javascript"></script>
+  <script src="syntaxhighlighter_3.0.83/scripts/shBrushCpp.js" type="text/javascript"></script>
+  <link href="syntaxhighlighter_3.0.83/styles/shThemeDefault.css" rel="stylesheet" type="text/css" />
+  <link href="syntaxhighlighter_3.0.83/styles/shCore.css" rel="stylesheet" type="text/css" />
+  <script type="text/javascript"> SyntaxHighlighter.all() </script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-25772750-1']);
+  _gaq.push(['_trackPageview']);
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+
+</head><body class="tutorial">
+<a href="https://github.com/seanbaxter/mgpufft"><img style="position: absolute; top: 0; right: 0; border: 0;" width="149" height="149" src="forkme_right_green_007200.png" alt="Fork me on GitHub" /></a>
+<div class="copyright">
+<p><strong>&copy; 2015, <a href="https://www.twitter.com/moderngpu">Sean Baxter</a>. All rights reserved.</strong></p>
+</div><br />
+
+<h1>MGPU FFT 0.01</h1>
+
+<p>
+MGPU FFT is component library for Fast Fourier Transforms on the CUDA platform.
+
+The intended use is for accelerating small-image convolutions using the 
+<a href="https://en.wikipedia.org/wiki/Convolution_theorem">
+convolution theorem</a>.
+</p>
+
+<p>
+In this 0.01 version, only 1D FFTs for power-of-two sizes between 4 and 1024
+are included. They are benchmarked against 
+<a href="http://docs.nvidia.com/cuda/cufft/index.html">CUFFT's</a> equivalent
+<code>cudaPlanMany</code> transforms.
+</p>
+<div class="snip"><pre>
+
+GeForce GTX TITAN
+6140 MB device memory.
+Memory bandwidth: 288 GB/s
+
+Throughputs reported by
+1. billions of points/s.
+2. GB/s of memory utilization (8 bytes/point).
+
+
+   n:            MGPU                        CUFFT           ratio
+   4: 29.730 B/s (237.84 GB/s)     1.708 B/s ( 13.67 GB/s)  17.40x
+   8: 29.541 B/s (236.33 GB/s)    13.826 B/s (110.61 GB/s)   2.14x
+  16: 29.484 B/s (235.87 GB/s)    14.357 B/s (114.86 GB/s)   2.05x
+  32: 29.763 B/s (238.10 GB/s)    13.909 B/s (111.27 GB/s)   2.14x
+  64: 29.714 B/s (237.72 GB/s)    14.051 B/s (112.40 GB/s)   2.11x
+ 128: 29.685 B/s (237.48 GB/s)    14.132 B/s (113.06 GB/s)   2.10x
+ 256: 29.665 B/s (237.32 GB/s)    14.456 B/s (115.65 GB/s)   2.05x
+ 512: 29.712 B/s (237.70 GB/s)    13.679 B/s (109.43 GB/s)   2.17x
+1024: 29.570 B/s (236.56 GB/s)    14.279 B/s (114.23 GB/s)   2.07x
+
+</pre></div>
+
+<p>
+MGPU FFT achieves excellent performance by treating the problem with a 
+<a href="http://nvlabs.github.io/moderngpu/intro.html#twophase">
+<i>two-phase decomposition</i></a>.
+
+
+</p>
+
+</body>
+</html>
