@@ -45,13 +45,12 @@ convolution theorem</a>.
 In this 0.01 version, only batched 1D real-to-complex (R2C) FFTs for power-of-two sizes between 4 and 1024
 are included. They are benchmarked against 
 <a href="http://docs.nvidia.com/cuda/cufft/index.html">CUFFT's</a> equivalent
-<code>cudaPlanMany</code> transforms.
+<code>cudaPlanMany</code> transforms and Facebook's open-source <a href="http://arxiv.org/abs/1412.7580">FBFFT</a> library.
 </p>
 
 <div class="snip"><pre>
-
 GeForce GTX TITAN
-6140 MB device memory.
+6143 MB device memory.
 Memory bandwidth: 288 GB/s
 
 Throughputs reported by
@@ -59,17 +58,16 @@ Throughputs reported by
 2. GB/s of memory utilization (8 bytes/point).
 
 
-   n:            MGPU                        CUFFT           ratio
-   4: 29.730 B/s (237.84 GB/s)     1.708 B/s ( 13.67 GB/s)  17.40x
-   8: 29.541 B/s (236.33 GB/s)    13.826 B/s (110.61 GB/s)   2.14x
-  16: 29.484 B/s (235.87 GB/s)    14.357 B/s (114.86 GB/s)   2.05x
-  32: 29.763 B/s (238.10 GB/s)    13.909 B/s (111.27 GB/s)   2.14x
-  64: 29.714 B/s (237.72 GB/s)    14.051 B/s (112.40 GB/s)   2.11x
- 128: 29.685 B/s (237.48 GB/s)    14.132 B/s (113.06 GB/s)   2.10x
- 256: 29.665 B/s (237.32 GB/s)    14.456 B/s (115.65 GB/s)   2.05x
- 512: 29.712 B/s (237.70 GB/s)    13.679 B/s (109.43 GB/s)   2.17x
-1024: 29.570 B/s (236.56 GB/s)    14.279 B/s (114.23 GB/s)   2.07x
-
+   n:          MGPU                  CUFFT                        FBFFT
+   4: 29.723B/s 237.78GB/s    1.693B/s  13.54GB/s 17.56x   16.965B/s 203.57GB/s  1.75x
+   8: 29.519B/s 236.15GB/s   13.799B/s 110.39GB/s  2.14x   17.423B/s 209.07GB/s  1.69x
+  16: 29.346B/s 234.77GB/s   14.342B/s 114.74GB/s  2.05x   18.873B/s 226.48GB/s  1.55x
+  32: 29.755B/s 238.04GB/s   13.896B/s 111.17GB/s  2.14x   16.031B/s 192.37GB/s  1.86x
+  64: 29.694B/s 237.56GB/s   14.047B/s 112.37GB/s  2.11x   13.071B/s 156.86GB/s  2.27x
+ 128: 29.683B/s 237.46GB/s   14.146B/s 113.17GB/s  2.10x   17.428B/s 209.14GB/s  1.70x
+ 256: 29.651B/s 237.21GB/s   14.467B/s 115.74GB/s  2.05x   15.379B/s 184.54GB/s  1.93x
+ 512: 29.691B/s 237.53GB/s   13.718B/s 109.75GB/s  2.16x    0.000B/s   0.00GB/s   infx
+1024: 29.347B/s 234.77GB/s   13.736B/s 109.89GB/s  2.14x    0.000B/s   0.00GB/s   infx
 </pre></div>
 
 <p>
