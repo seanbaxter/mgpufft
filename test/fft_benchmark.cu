@@ -10,6 +10,13 @@
 #include "gpu.hxx"
 #include "fft_kernels.hxx"
 
+#ifdef __BENCHMARK_FBFFT__
+
+#include "cuda/fbfft/FBFFT.h"
+#include "cuda/fbfft/FBFFTCommon.cuh"
+using namespace facebook::cuda; 
+
+#endif
 
 using namespace mgpu;
 
@@ -61,15 +68,15 @@ struct benchmark_t {
   int size;
   int batch;
   int num_iterations;
-  double elapsed[2];    // [0] is MGPU. [1] is CUFFT.
-  double throughput[2]; // In billion points/sec.
-  double bandwidth[2];  // In GB/sec.
+  double elapsed[3];    // [0] is MGPU. [1] is CUFFT.
+  double throughput[3]; // In billion points/sec.
+  double bandwidth[3];  // In GB/sec.
 };
 benchmark_t benchmark_test(int n, int batch, int num_iterations = 10, 
   bool print_transform = false) {
 
   typedef float real_t;
-  benchmark_t benchmark;
+  benchmark_t benchmark = benchmark_t();
   benchmark.n = n;
   benchmark.batch = batch;
   benchmark.size = n * batch;
@@ -95,6 +102,12 @@ benchmark_t benchmark_test(int n, int batch, int num_iterations = 10,
 
   cudaMalloc((void**)&output_cufft, sizeof(complex_t<real_t>) * odist * batch);
   cudaMemset(output_cufft, 0, sizeof(complex_t<real_t>) * odist * batch);
+
+#ifdef __BENCHMARK_FBFFT__
+  complex_t<real_t>* output_fbfft;
+  cudaMalloc((void**)&output_fbfft, sizeof(complex_t<real_t>) * n * batch);
+  cudaMemset(output_fbfft, 0, sizeof(complex_t<real_t>) * n * batch);
+#endif
 
   mgpu::timer_t timer;
 
@@ -123,12 +136,35 @@ benchmark_t benchmark_test(int n, int batch, int num_iterations = 10,
     cufftDestroy(plan);
   }
 
+#ifdef __BENCHMARK_FBFFT__
+  // FBFFT
+  {
+    if(n <= 256) {
+      // FBFFT only supports n <= 256.
+      int real_sizes[] = { batch, n };
+      DeviceTensor<float, 2> real(input_global, real_sizes);
+
+      int complex_sizes[] = { batch, n, 2 };
+      DeviceTensor<float, 3> complex((float*)output_fbfft, complex_sizes);
+
+      timer.start();
+      for(int it = 0; it < num_iterations; ++it) 
+        fbfft::fbfft1D<1>(real, complex);
+      benchmark.elapsed[2] = timer.stop();
+    }
+  }
+#endif  
+
   // Compute throughputs and bandwidths from elapsed time.
-  for(int i = 0; i < 2; ++i) {
-    benchmark.throughput[i] = (double)benchmark.size * num_iterations / 
-      benchmark.elapsed[i] / 1.0e9;
-    benchmark.bandwidth[i] = (double)benchmark.size * num_iterations * 
-      2 * sizeof(real_t) / benchmark.elapsed[i] / 1.0e9;
+  for(int i = 0; i < 3; ++i) {
+    if(benchmark.elapsed[i]) {
+      benchmark.throughput[i] = (double)benchmark.size * num_iterations / 
+        benchmark.elapsed[i] / 1.0e9;
+
+      int terms = (2 == i) ? 3 : 2;
+      benchmark.bandwidth[i] = (double)benchmark.size * num_iterations * 
+        terms * sizeof(real_t) / benchmark.elapsed[i] / 1.0e9;
+    }
   }
 
   std::vector<complex_t<real_t> > output_host = 
@@ -160,6 +196,9 @@ benchmark_t benchmark_test(int n, int batch, int num_iterations = 10,
   cudaFree(input_global);
   cudaFree(output_mgpu);
   cudaFree(output_cufft);
+#ifdef __BENCHMARK_FBFFT__
+  cudaFree(output_fbfft);
+#endif
 
   return benchmark;
 }
@@ -182,15 +221,17 @@ int main(int argc, char** argv) {
   printf("\nThroughputs reported by\n"
          "1. billions of points/s.\n"
          "2. GB/s of memory utilization (8 bytes/point).\n\n");
-  printf("\n   n:            MGPU                        CUFFT           ratio\n");
+  printf("\n   n:          MGPU                   CUFFT                         FBFFT\n");
 
   for(int n = 4; n <= 1024; n *= 2) {
     benchmark_t bench = benchmark_test(n, (64<< 20) / n, 10);
-    printf("%4d: %6.3f B/s (%6.2f GB/s)    %6.3f B/s (%6.2f GB/s)  %5.2fx\n", 
+    printf("%4d: %6.3fB/s %6.2fGB/s   %6.3fB/s %6.2fGB/s %5.2fx   %6.3fB/s %6.2fGB/s %5.2fx\n", 
       bench.n,
       bench.throughput[0], bench.bandwidth[0],
       bench.throughput[1], bench.bandwidth[1],
-      bench.throughput[0] / bench.throughput[1]);
+      bench.throughput[0] / bench.throughput[1],
+      bench.throughput[2], bench.bandwidth[2],
+      bench.throughput[0] / bench.throughput[2]);
   }
 
   return 0;
